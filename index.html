@@ -3,37 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Espectrógrafo - CulturaCrítica</title>
-    <!-- Librería de Sonido -->
+    <title>Aura Musical - CulturaCrítica</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <!-- Librerías de Inteligencia Artificial (Cámara y Manos) -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script> <!-- Nueva librería para dibujar líneas lindas -->
     <style>
         body { 
-            margin: 0; background-color: #121212; color: #00FF88; font-family: sans-serif; 
+            margin: 0; background-color: #050505; color: #00FF88; font-family: sans-serif; 
             display: flex; flex-direction: column; align-items: center; justify-content: center; 
             height: 100vh; overflow: hidden; 
         }
         #startBtn { 
-            padding: 15px 30px; font-size: 1.2rem; background-color: #00FF88; color: black; 
-            border: none; border-radius: 8px; font-weight: bold; cursor: pointer; z-index: 10; 
-            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.4);
+            padding: 15px 30px; font-size: 1.2rem; background-color: transparent; color: #00FF88; 
+            border: 2px solid #00FF88; border-radius: 30px; font-weight: bold; cursor: pointer; z-index: 10; 
+            transition: all 0.3s; backdrop-filter: blur(5px);
         }
+        #startBtn:hover { background-color: #00FF88; color: black; box-shadow: 0 0 20px #00FF88; }
         canvas { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            object-fit: cover; z-index: 1; opacity: 0.6; transform: scaleX(-1);
+            object-fit: cover; z-index: 1; opacity: 0.7; transform: scaleX(-1);
         }
         video { display: none; }
         #status { 
-            position: absolute; top: 20px; z-index: 10; background: rgba(0,0,0,0.7); 
-            padding: 10px 20px; border-radius: 8px; font-weight: bold; border: 1px solid #00FF88;
+            position: absolute; top: 30px; z-index: 10; background: rgba(0,0,0,0.5); 
+            padding: 15px 25px; border-radius: 20px; font-size: 1.2rem; text-shadow: 0 0 10px #00FF88;
+            border: 1px solid rgba(0,255,136,0.3); backdrop-filter: blur(4px);
         }
     </style>
 </head>
 <body>
-    <div id="status">Esperando activación...</div>
-    <button id="startBtn">Activar Espectrógrafo Armonioso</button>
+    <div id="status">Buscando resonancia...</div>
+    <button id="startBtn">Iniciar Experiencia Sensorial</button>
     <video id="input_video"></video>
     <canvas id="output_canvas"></canvas>
 
@@ -46,32 +47,41 @@
 
         let synth;
         
-        // ESCALA PENTATÓNICA MÁGICA: Estas notas jamás suenan mal juntas.
-        // C6 (Agudo arriba) hasta C4 (Grave abajo)
-        const notasMusicales = ["C6", "A5", "G5", "E5", "D5", "C5", "A4", "G4", "E4", "D4", "C4"];
-        let ultimaNotaTocada = null;
+        // PROGRESIÓN DE ACORDES HERMOSOS (Maj7 y m7)
+        // Cada arreglo es un acorde de 4 notas que suena súper relajante y etéreo.
+        const acordesCinematograficos = [
+            ["C5", "E5", "G5", "B5"], // Zona más alta: Do Mayor 7 (Brillante)
+            ["A4", "C5", "E5", "G5"], // Zona alta: La menor 7 (Melancólico)
+            ["F4", "A4", "C5", "E5"], // Zona media: Fa Mayor 7 (Esperanzador)
+            ["G4", "B4", "D5", "F5"], // Zona baja: Sol 7 (Transición)
+            ["C4", "E4", "G4", "B4"]  // Zona más baja: Do Mayor 7 profundo
+        ];
+        let indiceAcordeActual = -1;
 
-        // 1. INICIAR EL AUDIO 
         startBtn.addEventListener('click', async () => {
             await Tone.start(); 
             
-            // EFECTOS PARA QUE SUENE RELAJANTE Y ESPACIAL:
-            // Le ponemos Reverb (Eco de cuarto grande) y Delay (Repeticiones suaves)
-            const reverb = new Tone.Reverb({ decay: 4, wet: 0.6 }).toDestination();
-            const delay = new Tone.FeedbackDelay("8n", 0.4).connect(reverb);
+            // LA MAGIA DEL SONIDO:
+            // 1. Reverb masivo (como si estuvieras tocando en una catedral vacía)
+            const reverb = new Tone.Reverb({ decay: 10, wet: 0.8 }).toDestination();
             
-            // Cambiamos el sintetizador agresivo por uno de "onda suave" (sine wave)
+            // 2. Chorus (hace que el sonido tiemble suavemente, muy espacial)
+            const chorus = new Tone.Chorus(2, 2.5, 0.5).connect(reverb).start();
+            
+            // 3. Sintetizador tipo "Pad" de ataque muy lento
             synth = new Tone.PolySynth(Tone.Synth, {
                 oscillator: { type: "sine" }, 
-                envelope: { attack: 0.05, decay: 0.5, sustain: 0.1, release: 2 } // Desvanecimiento lento
-            }).connect(delay);
+                envelope: { attack: 2, decay: 1, sustain: 1, release: 5 } // Tarda 2 seg en subir, 5 seg en apagarse
+            }).connect(chorus);
             
+            // Bajamos un poco el volumen para que sea ambiental y no lastime los oídos
+            synth.volume.value = -8; 
+
             startBtn.style.display = 'none';
-            statusTxt.innerText = "Cargando Inteligencia Artificial...";
+            statusTxt.innerText = "Cargando Motores...";
             startCamera();
         });
 
-        // 2. LÓGICA DE DIBUJO Y SONIDO CUANDO DETECTA LA MANO
         function onResults(results) {
             canvasElement.width = videoElement.videoWidth;
             canvasElement.height = videoElement.videoHeight;
@@ -82,54 +92,52 @@
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // Dibujar los puntos de la mano
-                for (let i = 0; i < landmarks.length; i++) {
-                    const x = landmarks[i].x * canvasElement.width;
-                    const y = landmarks[i].y * canvasElement.height;
-                    canvasCtx.beginPath();
-                    canvasCtx.arc(x, y, 6, 0, 2 * Math.PI);
-                    canvasCtx.fillStyle = '#00FF88';
-                    canvasCtx.fill();
-                }
+                // VISUALES LINDOS: Dibuja las conexiones de la mano como una red neuronal brillante
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: 'rgba(0, 255, 136, 0.4)', lineWidth: 2});
+                drawLandmarks(canvasCtx, landmarks, {color: '#00FF88', lineWidth: 1, radius: 4});
 
-                // Usamos la altura del dedo índice (punto 8)
-                const indexFinger = landmarks[8];
+                // Usamos el centro de la mano (punto 9) para que sea más estable
+                const centroMano = landmarks[9];
                 
-                // Dividimos la pantalla en "Zonas" (como las cuerdas de un arpa)
-                // Dependiendo de a qué altura esté el dedo, calculamos qué cuerda está tocando
-                const zonaActual = Math.floor(indexFinger.y * notasMusicales.length);
-                const zonaSegura = Math.max(0, Math.min(notasMusicales.length - 1, zonaActual));
-                const notaActual = notasMusicales[zonaSegura];
+                // Calculamos en qué franja de la pantalla está tu mano
+                let zona = Math.floor(centroMano.y * acordesCinematograficos.length);
+                zona = Math.max(0, Math.min(acordesCinematograficos.length - 1, zona));
 
-                // Solo suena si el dedo cambió de zona (como rasgar una cuerda nueva)
-                if (notaActual !== ultimaNotaTocada) {
+                if (zona !== indiceAcordeActual) {
                     if (synth) {
-                        synth.triggerAttackRelease(notaActual, "8n");
+                        // Suelta suavemente el acorde anterior
+                        synth.releaseAll();
+                        // Toca el nuevo bloque de 4 notas
+                        synth.triggerAttack(acordesCinematograficos[zona]);
                     }
-                    ultimaNotaTocada = notaActual;
-                    statusTxt.innerText = `Armonía: ${notaActual}`;
+                    indiceAcordeActual = zona;
+                    
+                    const nombres = ["Luz (Do M7)", "Nostalgia (La m7)", "Paz (Fa M7)", "Tensión (Sol 7)", "Raíz (Do M7)"];
+                    statusTxt.innerText = `Aura: ${nombres[zona]}`;
                 }
             } else {
-                ultimaNotaTocada = null; // Resetea si quitas la mano
-                statusTxt.innerText = "Toca las cuerdas invisibles.";
+                // Si bajas la mano, el sonido se desvanece suaaavemente (tarda 5 segundos)
+                if (synth && indiceAcordeActual !== -1) {
+                    synth.releaseAll();
+                    indiceAcordeActual = -1;
+                    statusTxt.innerText = "Levanta la mano hacia la cámara";
+                }
             }
             canvasCtx.restore();
         }
 
-        // 3. CONFIGURAR LA IA DE GOOGLE MEDIAPIPE
         const hands = new Hands({locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
         }});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
         hands.onResults(onResults);
 
-        // 4. ENCENDER LA CÁMARA
         function startCamera() {
             const camera = new Camera(videoElement, {
                 onFrame: async () => { await hands.send({image: videoElement}); },
                 width: 640, height: 480
             });
-            camera.start().then(() => { statusTxt.innerText = "¡Mueve tu dedo arriba y abajo!"; });
+            camera.start().then(() => { statusTxt.innerText = "Levanta la mano lentamente"; });
         }
     </script>
 </body>
