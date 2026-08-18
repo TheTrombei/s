@@ -2,158 +2,87 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CulturaCrítica - Instrumento de Manos</title>
+    <title>Espectrógrafo Dual - CulturaCrítica</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <style>
-        body { 
-            margin: 0; background-color: #050505; color: #00FF88; font-family: sans-serif; 
-            display: flex; flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; overflow: hidden; 
-        }
-        #startBtn { 
-            padding: 15px 30px; font-size: 1.2rem; background-color: transparent; color: #00FF88; 
-            border: 2px solid #00FF88; border-radius: 30px; font-weight: bold; cursor: pointer; z-index: 10; 
-            backdrop-filter: blur(5px); transition: all 0.2s;
-        }
-        #startBtn:hover { background-color: #00FF88; color: black; }
-        canvas { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            object-fit: cover; z-index: 1; opacity: 0.8; transform: scaleX(-1);
-        }
-        video { display: none; }
-        #status { 
-            position: absolute; top: 30px; z-index: 10; background: rgba(0,0,0,0.6); 
-            padding: 15px 25px; border-radius: 20px; font-size: 1.1rem; 
-            border: 1px solid #00FF88; backdrop-filter: blur(4px);
-        }
+        body { margin: 0; background-color: #121212; color: #00FF88; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; overflow: hidden; }
+        #startBtn { padding: 20px 40px; font-size: 1.5rem; background-color: #00FF88; color: black; border: none; border-radius: 12px; cursor: pointer; z-index: 10; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; transform: scaleX(-1); }
+        #status { position: absolute; top: 20px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 10px; border: 1px solid #00FF88; }
     </style>
 </head>
 <body>
-    <div id="status">Esperando...</div>
-    <button id="startBtn">Activar Instrumento</button>
-    <video id="input_video"></video>
+    <div id="status">Presiona el botón para iniciar</div>
+    <button id="startBtn">INICIAR ESPECTRÓGRAFO DUAL</button>
+    <video id="input_video" style="display:none;"></video>
     <canvas id="output_canvas"></canvas>
 
     <script>
+        // 1. Dos sintetizadores distintos
+        let synthRight = new Tone.Synth({ oscillator: { type: 'square' } }).toDestination();
+        let synthLeft = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.2, release: 1 } }).toDestination();
+        
+        let isRightPlaying = false;
+        let isLeftPlaying = false;
+
         const videoElement = document.getElementById('input_video');
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
         const startBtn = document.getElementById('startBtn');
-        const statusTxt = document.getElementById('status');
-
-        let synth;
-        
-        // Configuramos cada dedo: qué puntos de la IA lo representan y qué nota toca
-        const dedos = [
-            { nombre: 'Pulgar',  punta: 4,  nudillo: 3,  nota: 'C4', activo: false },
-            { nombre: 'Índice',  punta: 8,  nudillo: 6,  nota: 'E4', activo: false },
-            { nombre: 'Medio',   punta: 12, nudillo: 10, nota: 'G4', activo: false },
-            { nombre: 'Anular',  punta: 16, nudillo: 14, nota: 'B4', activo: false },
-            { nombre: 'Meñique', punta: 20, nudillo: 18, nota: 'D5', activo: false }
-        ];
 
         startBtn.addEventListener('click', async () => {
-            await Tone.start(); 
-            
-            // Un eco suave, limpio y que no hace interferencia
-            const reverb = new Tone.Reverb({ decay: 2.5, wet: 0.4 }).toDestination();
-            
-            // Sintetizador limpio (estilo piano eléctrico / arpa)
-            synth = new Tone.PolySynth(Tone.Synth, {
-                oscillator: { type: "sine" },
-                envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 1.5 }
-            }).connect(reverb);
-            
-            synth.volume.value = -5;
-
+            await Tone.start();
             startBtn.style.display = 'none';
-            statusTxt.innerText = "Levanta tu mano. Cierra el puño y abre dedos.";
             startCamera();
         });
 
         function onResults(results) {
-            canvasElement.width = videoElement.videoWidth;
-            canvasElement.height = videoElement.videoHeight;
-            canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const landmarks = results.multiHandLandmarks[0];
-                
-                // Dibujar el esqueleto de la mano
-                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: 'rgba(0, 255, 136, 0.3)', lineWidth: 2});
-                drawLandmarks(canvasCtx, landmarks, {color: 'rgba(255, 255, 255, 0.5)', lineWidth: 1, radius: 2});
-
-                let notasActivas = [];
-
-                // REVISAR CADA DEDO INDIVIDUALMENTE
-                dedos.forEach(dedo => {
-                    // La IA sabe que el dedo está levantado si la punta está más arriba (y menor) que el nudillo
-                    let estaLevantado = landmarks[dedo.punta].y < landmarks[dedo.nudillo].y;
-
-                    // Si se acaba de levantar, disparamos su nota
-                    if (estaLevantado && !dedo.activo) {
-                        if (synth) synth.triggerAttack(dedo.nota);
-                        dedo.activo = true;
-                    } 
-                    // Si se acaba de bajar, silenciamos su nota
-                    else if (!estaLevantado && dedo.activo) {
-                        if (synth) synth.triggerRelease(dedo.nota);
-                        dedo.activo = false;
-                    }
-
-                    // EFECTO VISUAL: Si el dedo está arriba, encendemos su punta en verde brillante
-                    if (dedo.activo) {
-                        notasActivas.push(dedo.nota);
-                        const x = landmarks[dedo.punta].x * canvasElement.width;
-                        const y = landmarks[dedo.punta].y * canvasElement.height;
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(x, y, 10, 0, 2 * Math.PI);
-                        canvasCtx.fillStyle = '#00FF88';
-                        canvasCtx.fill();
-                        canvasCtx.shadowBlur = 15;
-                        canvasCtx.shadowColor = '#00FF88';
-                    }
-                });
-
-                if(notasActivas.length > 0) {
-                    statusTxt.innerText = "Tocando: " + notasActivas.join(" + ");
-                } else {
-                    statusTxt.innerText = "Puño cerrado (Silencio)";
-                }
-
-            } else {
-                // Si la mano desaparece de la cámara, apagar todo limpio
-                dedos.forEach(dedo => {
-                    if (dedo.activo) {
-                        if (synth) synth.triggerRelease(dedo.nota);
-                        dedo.activo = false;
-                    }
-                });
-                statusTxt.innerText = "Muestra tu mano a la cámara";
+            // Reiniciamos estados si no detecta nada
+            if (!results.multiHandLandmarks) {
+                if(isRightPlaying) { synthRight.triggerRelease(); isRightPlaying = false; }
+                if(isLeftPlaying) { synthLeft.triggerRelease(); isLeftPlaying = false; }
+                return;
             }
-            canvasCtx.restore();
+
+            // 2. Iteramos sobre las manos detectadas
+            for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                const landmarks = results.multiHandLandmarks[i];
+                const handedness = results.multiHandedness[i].label; // "Left" o "Right"
+                
+                // Lógica de detección (Dedo índice estirado)
+                const distTipToWrist = Math.hypot(landmarks[8].x - landmarks[0].x, landmarks[8].y - landmarks[0].y);
+                const distBaseToWrist = Math.hypot(landmarks[5].x - landmarks[0].x, landmarks[5].y - landmarks[0].y);
+                const isExtended = distTipToWrist > (distBaseToWrist * 1.2);
+
+                if (handedness === 'Left') { // Ajusta si te sale invertido
+                    if (isExtended) {
+                        let freq = 200 + (landmarks[8].y * 200); // Tono grave
+                        synthLeft.frequency.rampTo(freq, 0.1);
+                        if (!isLeftPlaying) { synthLeft.triggerAttack(freq); isLeftPlaying = true; }
+                    } else if (isLeftPlaying) { synthLeft.triggerRelease(); isLeftPlaying = false; }
+                } else {
+                    if (isExtended) {
+                        let freq = 400 + (landmarks[8].y * 400); // Tono agudo
+                        synthRight.frequency.rampTo(freq, 0.1);
+                        if (!isRightPlaying) { synthRight.triggerAttack(freq); isRightPlaying = true; }
+                    } else if (isRightPlaying) { synthRight.triggerRelease(); isRightPlaying = false; }
+                }
+            }
         }
 
-        const hands = new Hands({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-        }});
-        // Ajustamos la IA para que sea más estricta y rápida leyendo los dedos
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1 });
         hands.onResults(onResults);
 
         function startCamera() {
-            const camera = new Camera(videoElement, {
-                onFrame: async () => { await hands.send({image: videoElement}); },
-                width: 640, height: 480
-            });
-            camera.start();
+            new Camera(videoElement, { onFrame: async () => await hands.send({image: videoElement}), width: 640, height: 480 }).start();
         }
     </script>
 </body>
 </html>
+
