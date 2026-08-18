@@ -2,28 +2,49 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Espectrógrafo Dual - CulturaCrítica</title>
+    <!-- Librería de Sonido -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Librerías de Inteligencia Artificial (Cámara y Manos) -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <style>
-        body { margin: 0; background-color: #121212; color: #00FF88; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; overflow: hidden; }
-        #startBtn { padding: 20px 40px; font-size: 1.5rem; background-color: #00FF88; color: black; border: none; border-radius: 12px; cursor: pointer; z-index: 10; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; transform: scaleX(-1); }
-        #status { position: absolute; top: 20px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 10px; border: 1px solid #00FF88; }
+        body { margin: 0; background-color: #121212; color: #00FF88; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        #startBtn { padding: 20px 40px; font-size: 1.2rem; background-color: #00FF88; color: black; border: none; border-radius: 12px; cursor: pointer; z-index: 10; font-weight: bold; }
+        /* El object-fit cover con las dimensiones correctas arregla la cara aplastada */
+        canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 1; transform: scaleX(-1); opacity: 0.8; }
+        #status { position: absolute; top: 40px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px 25px; border-radius: 10px; border: 1px solid #00FF88; font-size: 1.2rem; text-align: center; }
     </style>
 </head>
 <body>
-    <div id="status">Presiona el botón para iniciar</div>
-    <button id="startBtn">INICIAR ESPECTRÓGRAFO DUAL</button>
+    <div id="status">Presiona para cargar el Espectrógrafo</div>
+    <button id="startBtn">INICIAR SINTETIZADOR MÁGICO</button>
     <video id="input_video" style="display:none;"></video>
     <canvas id="output_canvas"></canvas>
 
     <script>
-        // 1. Dos sintetizadores distintos
-        let synthRight = new Tone.Synth({ oscillator: { type: 'square' } }).toDestination();
-        let synthLeft = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.2, release: 1 } }).toDestination();
-        
+        // --- 1. CONFIGURACIÓN DEL AUDIO DE ALTA CALIDAD ---
+        // Efecto de Reverb (Eco de catedral para que suene hermoso)
+        const reverb = new Tone.Reverb(3).toDestination();
+
+        // Sintetizador Mano 1: Sonido suave y espacial (estilo pad)
+        let synthRight = new Tone.FMSynth({
+            harmonicity: 2, modulationIndex: 2,
+            oscillator: { type: "sine" }, modulation: { type: "triangle" },
+            envelope: { attack: 0.2, decay: 0.3, sustain: 0.4, release: 2 }
+        }).connect(reverb);
+
+        // Sintetizador Mano 2: Sonido más cristalino (estilo campana)
+        let synthLeft = new Tone.AMSynth({
+            harmonicity: 2.5,
+            oscillator: { type: "triangle" },
+            envelope: { attack: 0.05, decay: 0.2, sustain: 0.2, release: 1.5 }
+        }).connect(reverb);
+
+        // Escala musical: Obligamos a que toque estas notas exactas para que siempre suene bien
+        const notes = ["C3", "D3", "E3", "G3", "A3", "C4", "D4", "E4", "G4", "A4", "C5"];
+
         let isRightPlaying = false;
         let isLeftPlaying = false;
 
@@ -31,58 +52,253 @@
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
         const startBtn = document.getElementById('startBtn');
+        const statusTxt = document.getElementById('status');
 
         startBtn.addEventListener('click', async () => {
             await Tone.start();
             startBtn.style.display = 'none';
+            statusTxt.innerText = "Cargando IA...";
             startCamera();
         });
 
+        // Función que convierte la posición Y (0 a 1) en una nota de la escala
+        function getNoteFromY(yPos) {
+            let index = Math.floor((1 - yPos) * notes.length); 
+            if(index < 0) index = 0;
+            if(index >= notes.length) index = notes.length - 1;
+            return notes[index];
+        }
+
+        // --- 2. LÓGICA DE DIBUJO Y DETECCIÓN ---
         function onResults(results) {
+            // ¡ESTAS DOS LÍNEAS ARREGLAN LA CARA APLASTADA!
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+            
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-            // Reiniciamos estados si no detecta nada
-            if (!results.multiHandLandmarks) {
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
                 if(isRightPlaying) { synthRight.triggerRelease(); isRightPlaying = false; }
                 if(isLeftPlaying) { synthLeft.triggerRelease(); isLeftPlaying = false; }
+                statusTxt.innerText = "Muestra tus manos";
                 return;
             }
 
-            // 2. Iteramos sobre las manos detectadas
+            let textInfo = "";
+
             for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                 const landmarks = results.multiHandLandmarks[i];
-                const handedness = results.multiHandedness[i].label; // "Left" o "Right"
-                
-                // Lógica de detección (Dedo índice estirado)
+                const handedness = results.multiHandedness[i].label; 
+
+                // Dibujar el esqueleto para que se vea futurista
+                for (let j = 0; j < landmarks.length; j++) {
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(landmarks[j].x * canvasElement.width, landmarks[j].y * canvasElement.height, 4, 0, 2 * Math.PI);
+                    canvasCtx.fillStyle = (handedness === 'Left') ? '#00FF88' : '#FF3366'; // Color distinto por mano
+                    canvasCtx.fill();
+                }
+
+                // Detección matemática precisa contra la muñeca
                 const distTipToWrist = Math.hypot(landmarks[8].x - landmarks[0].x, landmarks[8].y - landmarks[0].y);
                 const distBaseToWrist = Math.hypot(landmarks[5].x - landmarks[0].x, landmarks[5].y - landmarks[0].y);
                 const isExtended = distTipToWrist > (distBaseToWrist * 1.2);
 
-                if (handedness === 'Left') { // Ajusta si te sale invertido
+                if (handedness === 'Left') { 
                     if (isExtended) {
-                        let freq = 200 + (landmarks[8].y * 200); // Tono grave
-                        synthLeft.frequency.rampTo(freq, 0.1);
-                        if (!isLeftPlaying) { synthLeft.triggerAttack(freq); isLeftPlaying = true; }
-                    } else if (isLeftPlaying) { synthLeft.triggerRelease(); isLeftPlaying = false; }
+                        let note = getNoteFromY(landmarks[8].y); // Nota exacta
+                        if (!isLeftPlaying) { 
+                            synthLeft.triggerAttack(note); 
+                            isLeftPlaying = true; 
+                        } else {
+                            synthLeft.setNote(note); // Cambia la nota sin "re-atacar" bruscamente
+                        }
+                        textInfo += `Izq: ${note}  `;
+                    } else if (isLeftPlaying) { 
+                        synthLeft.triggerRelease(); 
+                        isLeftPlaying = false; 
+                    }
                 } else {
                     if (isExtended) {
-                        let freq = 400 + (landmarks[8].y * 400); // Tono agudo
-                        synthRight.frequency.rampTo(freq, 0.1);
-                        if (!isRightPlaying) { synthRight.triggerAttack(freq); isRightPlaying = true; }
-                    } else if (isRightPlaying) { synthRight.triggerRelease(); isRightPlaying = false; }
+                        let note = getNoteFromY(landmarks[8].y); 
+                        if (!isRightPlaying) { 
+                            synthRight.triggerAttack(note); 
+                            isRightPlaying = true; 
+                        } else {
+                            synthRight.setNote(note);
+                        }
+                        textInfo += `Der: ${note}  `;
+                    } else if (isRightPlaying) { 
+                        synthRight.triggerRelease(); 
+                        isRightPlaying = false; 
+                    }
                 }
             }
+            
+            if(textInfo !== "") statusTxt.innerText = `Tocando: ${textInfo}`;
+            else statusTxt.innerText = "Manos cerradas (Silencio)";
         }
 
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({ maxNumHands: 2, modelComplexity: 1 });
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6 });
         hands.onResults(onResults);
 
         function startCamera() {
-            new Camera(videoElement, { onFrame: async () => await hands.send({image: videoElement}), width: 640, height: 480 }).start();
+            new Camera(videoElement, { onFrame: async () => await hands.send({image: videoElement}), width: 1280, height: 720 }).start()
+            .then(() => statusTxt.innerText = "Cámara Lista");
         }
     </script>
 </body>
 </html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Espectrógrafo Dual - CulturaCrítica</title>
+    <!-- Librería de Sonido -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Librerías de Inteligencia Artificial (Cámara y Manos) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <style>
+        body { margin: 0; background-color: #121212; color: #00FF88; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        #startBtn { padding: 20px 40px; font-size: 1.2rem; background-color: #00FF88; color: black; border: none; border-radius: 12px; cursor: pointer; z-index: 10; font-weight: bold; }
+        /* El object-fit cover con las dimensiones correctas arregla la cara aplastada */
+        canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 1; transform: scaleX(-1); opacity: 0.8; }
+        #status { position: absolute; top: 40px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px 25px; border-radius: 10px; border: 1px solid #00FF88; font-size: 1.2rem; text-align: center; }
+    </style>
+</head>
+<body>
+    <div id="status">Presiona para cargar el Espectrógrafo</div>
+    <button id="startBtn">INICIAR SINTETIZADOR MÁGICO</button>
+    <video id="input_video" style="display:none;"></video>
+    <canvas id="output_canvas"></canvas>
 
+    <script>
+        // --- 1. CONFIGURACIÓN DEL AUDIO DE ALTA CALIDAD ---
+        // Efecto de Reverb (Eco de catedral para que suene hermoso)
+        const reverb = new Tone.Reverb(3).toDestination();
+
+        // Sintetizador Mano 1: Sonido suave y espacial (estilo pad)
+        let synthRight = new Tone.FMSynth({
+            harmonicity: 2, modulationIndex: 2,
+            oscillator: { type: "sine" }, modulation: { type: "triangle" },
+            envelope: { attack: 0.2, decay: 0.3, sustain: 0.4, release: 2 }
+        }).connect(reverb);
+
+        // Sintetizador Mano 2: Sonido más cristalino (estilo campana)
+        let synthLeft = new Tone.AMSynth({
+            harmonicity: 2.5,
+            oscillator: { type: "triangle" },
+            envelope: { attack: 0.05, decay: 0.2, sustain: 0.2, release: 1.5 }
+        }).connect(reverb);
+
+        // Escala musical: Obligamos a que toque estas notas exactas para que siempre suene bien
+        const notes = ["C3", "D3", "E3", "G3", "A3", "C4", "D4", "E4", "G4", "A4", "C5"];
+
+        let isRightPlaying = false;
+        let isLeftPlaying = false;
+
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const statusTxt = document.getElementById('status');
+
+        startBtn.addEventListener('click', async () => {
+            await Tone.start();
+            startBtn.style.display = 'none';
+            statusTxt.innerText = "Cargando IA...";
+            startCamera();
+        });
+
+        // Función que convierte la posición Y (0 a 1) en una nota de la escala
+        function getNoteFromY(yPos) {
+            let index = Math.floor((1 - yPos) * notes.length); 
+            if(index < 0) index = 0;
+            if(index >= notes.length) index = notes.length - 1;
+            return notes[index];
+        }
+
+        // --- 2. LÓGICA DE DIBUJO Y DETECCIÓN ---
+        function onResults(results) {
+            // ¡ESTAS DOS LÍNEAS ARREGLAN LA CARA APLASTADA!
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+            
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                if(isRightPlaying) { synthRight.triggerRelease(); isRightPlaying = false; }
+                if(isLeftPlaying) { synthLeft.triggerRelease(); isLeftPlaying = false; }
+                statusTxt.innerText = "Muestra tus manos";
+                return;
+            }
+
+            let textInfo = "";
+
+            for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                const landmarks = results.multiHandLandmarks[i];
+                const handedness = results.multiHandedness[i].label; 
+
+                // Dibujar el esqueleto para que se vea futurista
+                for (let j = 0; j < landmarks.length; j++) {
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(landmarks[j].x * canvasElement.width, landmarks[j].y * canvasElement.height, 4, 0, 2 * Math.PI);
+                    canvasCtx.fillStyle = (handedness === 'Left') ? '#00FF88' : '#FF3366'; // Color distinto por mano
+                    canvasCtx.fill();
+                }
+
+                // Detección matemática precisa contra la muñeca
+                const distTipToWrist = Math.hypot(landmarks[8].x - landmarks[0].x, landmarks[8].y - landmarks[0].y);
+                const distBaseToWrist = Math.hypot(landmarks[5].x - landmarks[0].x, landmarks[5].y - landmarks[0].y);
+                const isExtended = distTipToWrist > (distBaseToWrist * 1.2);
+
+                if (handedness === 'Left') { 
+                    if (isExtended) {
+                        let note = getNoteFromY(landmarks[8].y); // Nota exacta
+                        if (!isLeftPlaying) { 
+                            synthLeft.triggerAttack(note); 
+                            isLeftPlaying = true; 
+                        } else {
+                            synthLeft.setNote(note); // Cambia la nota sin "re-atacar" bruscamente
+                        }
+                        textInfo += `Izq: ${note}  `;
+                    } else if (isLeftPlaying) { 
+                        synthLeft.triggerRelease(); 
+                        isLeftPlaying = false; 
+                    }
+                } else {
+                    if (isExtended) {
+                        let note = getNoteFromY(landmarks[8].y); 
+                        if (!isRightPlaying) { 
+                            synthRight.triggerAttack(note); 
+                            isRightPlaying = true; 
+                        } else {
+                            synthRight.setNote(note);
+                        }
+                        textInfo += `Der: ${note}  `;
+                    } else if (isRightPlaying) { 
+                        synthRight.triggerRelease(); 
+                        isRightPlaying = false; 
+                    }
+                }
+            }
+            
+            if(textInfo !== "") statusTxt.innerText = `Tocando: ${textInfo}`;
+            else statusTxt.innerText = "Manos cerradas (Silencio)";
+        }
+
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6 });
+        hands.onResults(onResults);
+
+        function startCamera() {
+            new Camera(videoElement, { onFrame: async () => await hands.send({image: videoElement}), width: 1280, height: 720 }).start()
+            .then(() => statusTxt.innerText = "Cámara Lista");
+        }
+    </script>
+</body>
+</html>
