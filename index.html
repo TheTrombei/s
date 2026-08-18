@@ -22,7 +22,7 @@
         }
         canvas { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            object-fit: cover; z-index: 1; opacity: 0.6; transform: scaleX(-1); /* Efecto espejo */
+            object-fit: cover; z-index: 1; opacity: 0.6; transform: scaleX(-1);
         }
         video { display: none; }
         #status { 
@@ -33,7 +33,7 @@
 </head>
 <body>
     <div id="status">Esperando activación...</div>
-    <button id="startBtn">Activar Espectrógrafo Sonoro</button>
+    <button id="startBtn">Activar Espectrógrafo Armonioso</button>
     <video id="input_video"></video>
     <canvas id="output_canvas"></canvas>
 
@@ -45,17 +45,26 @@
         const statusTxt = document.getElementById('status');
 
         let synth;
-        let isPlaying = false;
+        
+        // ESCALA PENTATÓNICA MÁGICA: Estas notas jamás suenan mal juntas.
+        // C6 (Agudo arriba) hasta C4 (Grave abajo)
+        const notasMusicales = ["C6", "A5", "G5", "E5", "D5", "C5", "A4", "G4", "E4", "D4", "C4"];
+        let ultimaNotaTocada = null;
 
-        // 1. INICIAR EL AUDIO Y LA CÁMARA AL PRESIONAR EL BOTÓN
+        // 1. INICIAR EL AUDIO 
         startBtn.addEventListener('click', async () => {
-            await Tone.start(); // El navegador obliga a que el usuario interactúe antes de sonar
+            await Tone.start(); 
             
-            // Creamos un sintetizador con un sonido muy "Sci-Fi" / Electrónico
-            synth = new Tone.Synth({
-                oscillator: { type: 'fmsquare', modulationType: 'sawtooth', modulationIndex: 3 },
-                envelope: { attack: 0.1, decay: 0.2, sustain: 0.5, release: 0.5 }
-            }).toDestination();
+            // EFECTOS PARA QUE SUENE RELAJANTE Y ESPACIAL:
+            // Le ponemos Reverb (Eco de cuarto grande) y Delay (Repeticiones suaves)
+            const reverb = new Tone.Reverb({ decay: 4, wet: 0.6 }).toDestination();
+            const delay = new Tone.FeedbackDelay("8n", 0.4).connect(reverb);
+            
+            // Cambiamos el sintetizador agresivo por uno de "onda suave" (sine wave)
+            synth = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "sine" }, 
+                envelope: { attack: 0.05, decay: 0.5, sustain: 0.1, release: 2 } // Desvanecimiento lento
+            }).connect(delay);
             
             startBtn.style.display = 'none';
             statusTxt.innerText = "Cargando Inteligencia Artificial...";
@@ -73,7 +82,7 @@
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // Dibujar los puntos de la mano en verde neón
+                // Dibujar los puntos de la mano
                 for (let i = 0; i < landmarks.length; i++) {
                     const x = landmarks[i].x * canvasElement.width;
                     const y = landmarks[i].y * canvasElement.height;
@@ -83,28 +92,26 @@
                     canvasCtx.fill();
                 }
 
-                // LÓGICA DE SONIDO: Usamos la altura del dedo índice (punto 8)
+                // Usamos la altura del dedo índice (punto 8)
                 const indexFinger = landmarks[8];
                 
-                // Convertimos la posición Y de la mano a frecuencias (Hz)
-                // Y=0 (arriba) será agudo (800Hz), Y=1 (abajo) será grave (200Hz)
-                const freq = 800 - (indexFinger.y * 600); 
+                // Dividimos la pantalla en "Zonas" (como las cuerdas de un arpa)
+                // Dependiendo de a qué altura esté el dedo, calculamos qué cuerda está tocando
+                const zonaActual = Math.floor(indexFinger.y * notasMusicales.length);
+                const zonaSegura = Math.max(0, Math.min(notasMusicales.length - 1, zonaActual));
+                const notaActual = notasMusicales[zonaSegura];
 
-                if (synth) {
-                    synth.frequency.rampTo(freq, 0.1); // Transición suave entre notas
-                    if (!isPlaying) {
-                        synth.triggerAttack(freq);
-                        isPlaying = true;
+                // Solo suena si el dedo cambió de zona (como rasgar una cuerda nueva)
+                if (notaActual !== ultimaNotaTocada) {
+                    if (synth) {
+                        synth.triggerAttackRelease(notaActual, "8n");
                     }
+                    ultimaNotaTocada = notaActual;
+                    statusTxt.innerText = `Armonía: ${notaActual}`;
                 }
-                statusTxt.innerText = `Frecuencia: ${Math.round(freq)} Hz`;
             } else {
-                // Si escondes la mano, se calla la música
-                if (synth && isPlaying) {
-                    synth.triggerRelease();
-                    isPlaying = false;
-                }
-                statusTxt.innerText = "Mano no detectada. Levántala.";
+                ultimaNotaTocada = null; // Resetea si quitas la mano
+                statusTxt.innerText = "Toca las cuerdas invisibles.";
             }
             canvasCtx.restore();
         }
@@ -122,7 +129,7 @@
                 onFrame: async () => { await hands.send({image: videoElement}); },
                 width: 640, height: 480
             });
-            camera.start().then(() => { statusTxt.innerText = "¡Mueve tu dedo índice hacia arriba y abajo!"; });
+            camera.start().then(() => { statusTxt.innerText = "¡Mueve tu dedo arriba y abajo!"; });
         }
     </script>
 </body>
