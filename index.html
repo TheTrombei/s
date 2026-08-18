@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Espectrógrafo - CulturaCrítica</title>
+    <!-- Librería de Sonido -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Librerías de Inteligencia Artificial (Cámara y Manos) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <style>
+        body { 
+            margin: 0; background-color: #121212; color: #00FF88; font-family: sans-serif; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            height: 100vh; overflow: hidden; 
+        }
+        #startBtn { 
+            padding: 15px 30px; font-size: 1.2rem; background-color: #00FF88; color: black; 
+            border: none; border-radius: 8px; font-weight: bold; cursor: pointer; z-index: 10; 
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.4);
+        }
+        canvas { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            object-fit: cover; z-index: 1; opacity: 0.6; transform: scaleX(-1); /* Efecto espejo */
+        }
+        video { display: none; }
+        #status { 
+            position: absolute; top: 20px; z-index: 10; background: rgba(0,0,0,0.7); 
+            padding: 10px 20px; border-radius: 8px; font-weight: bold; border: 1px solid #00FF88;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Esperando activación...</div>
+    <button id="startBtn">Activar Espectrógrafo Sonoro</button>
+    <video id="input_video"></video>
+    <canvas id="output_canvas"></canvas>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const statusTxt = document.getElementById('status');
+
+        let synth;
+        let isPlaying = false;
+
+        // 1. INICIAR EL AUDIO Y LA CÁMARA AL PRESIONAR EL BOTÓN
+        startBtn.addEventListener('click', async () => {
+            await Tone.start(); // El navegador obliga a que el usuario interactúe antes de sonar
+            
+            // Creamos un sintetizador con un sonido muy "Sci-Fi" / Electrónico
+            synth = new Tone.Synth({
+                oscillator: { type: 'fmsquare', modulationType: 'sawtooth', modulationIndex: 3 },
+                envelope: { attack: 0.1, decay: 0.2, sustain: 0.5, release: 0.5 }
+            }).toDestination();
+            
+            startBtn.style.display = 'none';
+            statusTxt.innerText = "Cargando Inteligencia Artificial...";
+            startCamera();
+        });
+
+        // 2. LÓGICA DE DIBUJO Y SONIDO CUANDO DETECTA LA MANO
+        function onResults(results) {
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Dibujar los puntos de la mano en verde neón
+                for (let i = 0; i < landmarks.length; i++) {
+                    const x = landmarks[i].x * canvasElement.width;
+                    const y = landmarks[i].y * canvasElement.height;
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x, y, 6, 0, 2 * Math.PI);
+                    canvasCtx.fillStyle = '#00FF88';
+                    canvasCtx.fill();
+                }
+
+                // LÓGICA DE SONIDO: Usamos la altura del dedo índice (punto 8)
+                const indexFinger = landmarks[8];
+                
+                // Convertimos la posición Y de la mano a frecuencias (Hz)
+                // Y=0 (arriba) será agudo (800Hz), Y=1 (abajo) será grave (200Hz)
+                const freq = 800 - (indexFinger.y * 600); 
+
+                if (synth) {
+                    synth.frequency.rampTo(freq, 0.1); // Transición suave entre notas
+                    if (!isPlaying) {
+                        synth.triggerAttack(freq);
+                        isPlaying = true;
+                    }
+                }
+                statusTxt.innerText = `Frecuencia: ${Math.round(freq)} Hz`;
+            } else {
+                // Si escondes la mano, se calla la música
+                if (synth && isPlaying) {
+                    synth.triggerRelease();
+                    isPlaying = false;
+                }
+                statusTxt.innerText = "Mano no detectada. Levántala.";
+            }
+            canvasCtx.restore();
+        }
+
+        // 3. CONFIGURAR LA IA DE GOOGLE MEDIAPIPE
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        hands.onResults(onResults);
+
+        // 4. ENCENDER LA CÁMARA
+        function startCamera() {
+            const camera = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({image: videoElement}); },
+                width: 640, height: 480
+            });
+            camera.start().then(() => { statusTxt.innerText = "¡Mueve tu dedo índice hacia arriba y abajo!"; });
+        }
+    </script>
+</body>
+</html>
