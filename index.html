@@ -2,7 +2,9 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sintetizador de 10 Dedos - CulturaCrítica</title>
+    <!-- Librerías Externas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
@@ -22,61 +24,76 @@
     </style>
 </head>
 <body>
-    <div id="status">Esperando...</div>
+    <div id="status">Esperando activación...</div>
     <button id="startBtn">INICIAR GUITARRA / SYNTH</button>
-    <video id="input_video" style="display:none;"></video>
+    <!-- playsinline es clave en móviles para que no se trabe el video oculto -->
+    <video id="input_video" style="display:none;" playsinline></video>
     <canvas id="output_canvas"></canvas>
 
     <script>
         const statusTxt = document.getElementById('status');
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
+        const videoElement = document.getElementById('input_video');
+        const startBtn = document.getElementById('startBtn');
         
         const reverb = new Tone.Reverb(2.5).toDestination();
         
-        // --- INSTRUMENTOS ---
-        // Mano Izquierda (GUITARRA ACÚSTICA SIMULADA)
-        const synthGuitar = new Tone.PolySynth(Tone.PluckSynth, {
-            attackNoise: 1, dampening: 4000, resonance: 0.9
+        // --- 1. INSTRUMENTOS MEJORADOS ---
+        // Mano Izquierda: Simulación de Guitarra (Triángulo con golpe seco y sin cola)
+        const synthGuitar = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: "triangle" },
+            envelope: { attack: 0.01, decay: 0.5, sustain: 0, release: 0.1 }
         }).connect(reverb);
 
-        // Mano Derecha (SYNTH PROFUNDO ORIGINAL)
+        // Mano Derecha: Synth Pad (FMSynth espacial y suave)
         const synthPad = new Tone.PolySynth(Tone.FMSynth, {
-            oscillator: { type: "sine" }, envelope: { attack: 0.1, release: 1 }
+            oscillator: { type: "sine" },
+            envelope: { attack: 0.1, decay: 0.2, sustain: 0.8, release: 1 }
         }).connect(reverb);
         
-        // --- ASIGNACIÓN DE NOTAS POR DEDO ---
-        // Dedo: [0:Pulgar, 1:Índice, 2:Medio, 3:Anular, 4:Meñique]
-        const leftNotes  = ["C3", "E3", "G3", "B3", "D4"]; // Acorde de Cmaj9 (Guitarra Grave)
-        const rightNotes = ["C4", "E4", "G4", "B4", "D5"]; // Acorde de Cmaj9 (Synth Agudo)
+        // --- 2. ASIGNACIÓN DE NOTAS (Acordes) ---
+        const leftNotes  = ["C3", "E3", "G3", "B3", "D4"]; // Pulgar a Meñique
+        const rightNotes = ["C4", "E4", "G4", "B4", "D5"];
 
-        // Memoria para saber qué dedos están tocando en este milisegundo
         let activeFingers = { "Left": [false,false,false,false,false], "Right": [false,false,false,false,false] };
 
-        document.getElementById('startBtn').onclick = async () => {
-            await Tone.start();
-            document.getElementById('startBtn').style.display = 'none';
-            statusTxt.innerText = "Levanta los dedos para tocar";
-            startCamera();
-        };
+        // --- 3. INICIO SEGURO ---
+        startBtn.addEventListener('click', async () => {
+            try {
+                startBtn.style.display = 'none';
+                statusTxt.innerText = "[1/3] Iniciando motor de Audio...";
+                await Tone.start();
+                
+                statusTxt.innerText = "[2/3] Conectando cámara...";
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                videoElement.srcObject = stream;
+                
+                statusTxt.innerText = "[3/3] Descargando IA (Espera)...";
+                startCamera();
+            } catch (error) {
+                statusTxt.innerText = "❌ ERROR: " + error.message;
+                statusTxt.style.color = "#FF3366";
+                startBtn.style.display = 'block';
+                startBtn.innerText = "REINTENTAR";
+            }
+        });
 
-        function isFingerExtended(landmarks, fingerTipIndex, fingerBaseIndex) {
-            // Un dedo (excepto el pulgar) se considera estirado si su punta está más arriba que su nudillo central
-            // Y de MediaPipe disminuye hacia arriba.
-            return landmarks[fingerTipIndex].y < landmarks[fingerBaseIndex].y;
+        // --- 4. LÓGICA DE DETECCIÓN DE DEDOS ---
+        function isFingerExtended(landmarks, tipIndex, baseIndex) {
+            return landmarks[tipIndex].y < landmarks[baseIndex].y;
         }
 
         function isThumbExtended(landmarks, handedness) {
-            // El pulgar se evalúa horizontalmente (X) respecto al nudillo del meñique
-            // Depende de qué mano sea (por el efecto espejo)
-            if (handedness === 'Left') {
-                return landmarks[4].x < landmarks[17].x; 
-            } else {
-                return landmarks[4].x > landmarks[17].x;
-            }
+            if (handedness === 'Left') return landmarks[4].x < landmarks[17].x; 
+            else return landmarks[4].x > landmarks[17].x;
         }
 
         function onResults(results) {
+            if (statusTxt.innerText.includes("Descargando IA")) {
+                statusTxt.innerText = "✅ ¡Listo! Levanta los dedos.";
+            }
+
             canvasElement.width = results.image.width;
             canvasElement.height = results.image.height;
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -85,30 +102,29 @@
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
                 synthGuitar.releaseAll(); synthPad.releaseAll();
                 activeFingers = { "Left": [false,false,false,false,false], "Right": [false,false,false,false,false] };
-                statusTxt.innerText = "Muestra tus manos";
+                if (!statusTxt.innerText.includes("Descargando")) {
+                    statusTxt.innerText = "Muestra tus manos";
+                }
                 return;
             }
 
             let textInfo = "";
-            // Leemos el estado actual de los dedos en este frame
             let currentFingers = { "Left": [false,false,false,false,false], "Right": [false,false,false,false,false] };
 
             for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                 const landmarks = results.multiHandLandmarks[i];
-                const handedness = results.multiHandedness[i].label; // Left (Guitarra) o Right (Synth)
+                const handedness = results.multiHandedness[i].label; 
                 
                 const handColor = (handedness === 'Left') ? '#00FF88' : '#FF3366';
                 drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: handColor, lineWidth: 3});
-                drawLandmarks(canvasCtx, landmarks, {color: '#FFFFFF', lineWidth: 1, radius: 3});
+                drawLandmarks(canvasCtx, landmarks, {color: '#FFFFFF', lineWidth: 1, radius: 4});
 
-                // Detectar qué dedos están levantados
-                currentFingers[handedness][0] = isThumbExtended(landmarks, handedness); // Pulgar (4)
-                currentFingers[handedness][1] = isFingerExtended(landmarks, 8, 6);      // Índice (8)
-                currentFingers[handedness][2] = isFingerExtended(landmarks, 12, 10);    // Medio (12)
-                currentFingers[handedness][3] = isFingerExtended(landmarks, 16, 14);    // Anular (16)
-                currentFingers[handedness][4] = isFingerExtended(landmarks, 20, 18);    // Meñique (20)
+                currentFingers[handedness][0] = isThumbExtended(landmarks, handedness); // Pulgar
+                currentFingers[handedness][1] = isFingerExtended(landmarks, 8, 6);      // Índice
+                currentFingers[handedness][2] = isFingerExtended(landmarks, 12, 10);    // Medio
+                currentFingers[handedness][3] = isFingerExtended(landmarks, 16, 14);    // Anular
+                currentFingers[handedness][4] = isFingerExtended(landmarks, 20, 18);    // Meñique
 
-                // Lógica de Sonido: Comparamos el estado actual con el estado anterior
                 let handInstrument = (handedness === 'Left') ? synthGuitar : synthPad;
                 let handNotes = (handedness === 'Left') ? leftNotes : rightNotes;
                 let handText = (handedness === 'Left') ? "🎸 Izq: " : "🎹 Der: ";
@@ -119,23 +135,16 @@
                     let isPlaying = currentFingers[handedness][finger];
                     let note = handNotes[finger];
 
-                    if (isPlaying && !wasPlaying) {
-                        // El dedo acaba de levantarse -> Atacar nota
-                        handInstrument.triggerAttack(note);
-                    } else if (!isPlaying && wasPlaying) {
-                        // El dedo acaba de bajar -> Soltar nota
-                        handInstrument.triggerRelease(note);
-                    }
+                    // Solo ataca si acaba de levantarse, y suelta si acaba de bajarse
+                    if (isPlaying && !wasPlaying) handInstrument.triggerAttack(note);
+                    else if (!isPlaying && wasPlaying) handInstrument.triggerRelease(note);
 
                     if (isPlaying) notasTocando.push(note);
                 }
-
                 if (notasTocando.length > 0) textInfo += handText + notasTocando.join(", ") + " | ";
             }
 
-            // Actualizamos la memoria para el próximo frame
             activeFingers = currentFingers;
-
             if (textInfo !== "") statusTxt.innerText = textInfo;
             else statusTxt.innerText = "Manos listas (levanta los dedos)";
         }
@@ -145,8 +154,8 @@
         hands.onResults(onResults);
 
         function startCamera() {
-            new Camera(document.getElementById('input_video'), { 
-                onFrame: async () => await hands.send({image: document.getElementById('input_video')}),
+            new Camera(videoElement, { 
+                onFrame: async () => await hands.send({image: videoElement}),
             }).start();
         }
     </script>
