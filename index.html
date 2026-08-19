@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Espectrógrafo - CulturaCrítica</title>
+    <title>Sintetizador de 10 Dedos - CulturaCrítica</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
@@ -14,20 +14,16 @@
             padding: 20px 40px; background: #00FF88; color: black; border: none; 
             border-radius: 12px; font-size: 1.2rem; font-weight: bold; z-index: 10; cursor: pointer; 
         }
-        #output_canvas { 
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; 
-            object-fit: cover; transform: scaleX(-1); 
-        }
+        #output_canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); }
         #status { 
-            position: absolute; top: 20px; left: 20px; color: #fff; background: rgba(0,0,0,0.7); 
-            padding: 15px; border-radius: 8px; z-index: 5; font-size: 1.2rem; font-weight: bold; 
-            border: 1px solid #00FF88;
+            position: absolute; top: 20px; left: 20px; color: #fff; background: rgba(0,0,0,0.8); 
+            padding: 15px; border-radius: 8px; z-index: 5; font-size: 1.1rem; font-weight: bold; border: 1px solid #00FF88;
         }
     </style>
 </head>
 <body>
     <div id="status">Esperando...</div>
-    <button id="startBtn">INICIAR SINTETIZADOR MÁGICO</button>
+    <button id="startBtn">INICIAR GUITARRA / SYNTH</button>
     <video id="input_video" style="display:none;"></video>
     <canvas id="output_canvas"></canvas>
 
@@ -36,30 +32,50 @@
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
         
-        // --- 1. RESTAURAMOS LOS SONIDOS MÁGICOS ---
-        const reverb = new Tone.Reverb(3).toDestination();
+        const reverb = new Tone.Reverb(2.5).toDestination();
         
-        // Mano Izquierda (Sonido cristalino tipo campana)
-        const synthLeft = new Tone.PolySynth(Tone.AMSynth, {
-            oscillator: { type: "triangle" }
+        // --- INSTRUMENTOS ---
+        // Mano Izquierda (GUITARRA ACÚSTICA SIMULADA)
+        const synthGuitar = new Tone.PolySynth(Tone.PluckSynth, {
+            attackNoise: 1, dampening: 4000, resonance: 0.9
         }).connect(reverb);
 
-        // Mano Derecha (Sonido profundo tipo Sci-Fi)
-        const synthRight = new Tone.PolySynth(Tone.FMSynth, {
-            oscillator: { type: "sine" }
+        // Mano Derecha (SYNTH PROFUNDO ORIGINAL)
+        const synthPad = new Tone.PolySynth(Tone.FMSynth, {
+            oscillator: { type: "sine" }, envelope: { attack: 0.1, release: 1 }
         }).connect(reverb);
         
-        let activeNotes = { "Left": null, "Right": null };
-        const scale = ["C3","D3","E3","G3","A3","C4","D4","E4","G4","A4"];
+        // --- ASIGNACIÓN DE NOTAS POR DEDO ---
+        // Dedo: [0:Pulgar, 1:Índice, 2:Medio, 3:Anular, 4:Meñique]
+        const leftNotes  = ["C3", "E3", "G3", "B3", "D4"]; // Acorde de Cmaj9 (Guitarra Grave)
+        const rightNotes = ["C4", "E4", "G4", "B4", "D5"]; // Acorde de Cmaj9 (Synth Agudo)
+
+        // Memoria para saber qué dedos están tocando en este milisegundo
+        let activeFingers = { "Left": [false,false,false,false,false], "Right": [false,false,false,false,false] };
 
         document.getElementById('startBtn').onclick = async () => {
             await Tone.start();
             document.getElementById('startBtn').style.display = 'none';
-            statusTxt.innerText = "IA Cargada. Mueve el dedo índice.";
+            statusTxt.innerText = "Levanta los dedos para tocar";
             startCamera();
         };
 
-        // --- 2. LÓGICA DE DIBUJO Y DETECCIÓN ---
+        function isFingerExtended(landmarks, fingerTipIndex, fingerBaseIndex) {
+            // Un dedo (excepto el pulgar) se considera estirado si su punta está más arriba que su nudillo central
+            // Y de MediaPipe disminuye hacia arriba.
+            return landmarks[fingerTipIndex].y < landmarks[fingerBaseIndex].y;
+        }
+
+        function isThumbExtended(landmarks, handedness) {
+            // El pulgar se evalúa horizontalmente (X) respecto al nudillo del meñique
+            // Depende de qué mano sea (por el efecto espejo)
+            if (handedness === 'Left') {
+                return landmarks[4].x < landmarks[17].x; 
+            } else {
+                return landmarks[4].x > landmarks[17].x;
+            }
+        }
+
         function onResults(results) {
             canvasElement.width = results.image.width;
             canvasElement.height = results.image.height;
@@ -67,71 +83,61 @@
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                releaseAll();
-                statusTxt.innerText = "Buscando manos...";
+                synthGuitar.releaseAll(); synthPad.releaseAll();
+                activeFingers = { "Left": [false,false,false,false,false], "Right": [false,false,false,false,false] };
+                statusTxt.innerText = "Muestra tus manos";
                 return;
             }
 
             let textInfo = "";
+            // Leemos el estado actual de los dedos en este frame
+            let currentFingers = { "Left": [false,false,false,false,false], "Right": [false,false,false,false,false] };
 
             for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                 const landmarks = results.multiHandLandmarks[i];
-                const handedness = results.multiHandedness[i].label; // "Left" o "Right"
+                const handedness = results.multiHandedness[i].label; // Left (Guitarra) o Right (Synth)
                 
-                // RESTAURAMOS LOS COLORES DE TU APP (Verde para una mano, Rosa para la otra)
                 const handColor = (handedness === 'Left') ? '#00FF88' : '#FF3366';
-                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: handColor, lineWidth: 4});
-                drawLandmarks(canvasCtx, landmarks, {color: '#FFFFFF', lineWidth: 1, radius: 4});
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: handColor, lineWidth: 3});
+                drawLandmarks(canvasCtx, landmarks, {color: '#FFFFFF', lineWidth: 1, radius: 3});
 
-                // Detectamos si el dedo índice está estirado (usando la matemática infalible)
-                const isExtended = (landmarks[8].y < landmarks[6].y); 
+                // Detectar qué dedos están levantados
+                currentFingers[handedness][0] = isThumbExtended(landmarks, handedness); // Pulgar (4)
+                currentFingers[handedness][1] = isFingerExtended(landmarks, 8, 6);      // Índice (8)
+                currentFingers[handedness][2] = isFingerExtended(landmarks, 12, 10);    // Medio (12)
+                currentFingers[handedness][3] = isFingerExtended(landmarks, 16, 14);    // Anular (16)
+                currentFingers[handedness][4] = isFingerExtended(landmarks, 20, 18);    // Meñique (20)
 
-                if (isExtended) {
-                    // Calculamos qué nota debe tocar según la altura del dedo
-                    let noteIndex = Math.floor((1 - landmarks[8].y) * 10);
-                    noteIndex = Math.max(0, Math.min(9, noteIndex)); // Evita que se salga del rango
-                    let note = scale[noteIndex];
-                    
-                    playNote(handedness, note);
-                    
-                    // Preparamos el texto para mostrar en pantalla
-                    let nombreMano = (handedness === 'Left') ? "🟢 Izq" : "🔴 Der";
-                    textInfo += `${nombreMano}: ${note}   `;
-                } else {
-                    stopNote(handedness);
+                // Lógica de Sonido: Comparamos el estado actual con el estado anterior
+                let handInstrument = (handedness === 'Left') ? synthGuitar : synthPad;
+                let handNotes = (handedness === 'Left') ? leftNotes : rightNotes;
+                let handText = (handedness === 'Left') ? "🎸 Izq: " : "🎹 Der: ";
+                let notasTocando = [];
+
+                for (let finger = 0; finger < 5; finger++) {
+                    let wasPlaying = activeFingers[handedness][finger];
+                    let isPlaying = currentFingers[handedness][finger];
+                    let note = handNotes[finger];
+
+                    if (isPlaying && !wasPlaying) {
+                        // El dedo acaba de levantarse -> Atacar nota
+                        handInstrument.triggerAttack(note);
+                    } else if (!isPlaying && wasPlaying) {
+                        // El dedo acaba de bajar -> Soltar nota
+                        handInstrument.triggerRelease(note);
+                    }
+
+                    if (isPlaying) notasTocando.push(note);
                 }
+
+                if (notasTocando.length > 0) textInfo += handText + notasTocando.join(", ") + " | ";
             }
 
-            // ACTUALIZAMOS EL TEXTO EN PANTALLA
-            if (textInfo !== "") {
-                statusTxt.innerText = `Tocando -> ${textInfo}`;
-            } else {
-                statusTxt.innerText = "Puños cerrados (Silencio)";
-            }
-        }
+            // Actualizamos la memoria para el próximo frame
+            activeFingers = currentFingers;
 
-        // --- 3. GESTIÓN DE NOTAS (Evita que se traben) ---
-        function playNote(side, note) {
-            if (activeNotes[side] !== note) {
-                if (activeNotes[side]) {
-                    (side === 'Left' ? synthLeft : synthRight).triggerRelease(activeNotes[side]);
-                }
-                (side === 'Left' ? synthLeft : synthRight).triggerAttack(note);
-                activeNotes[side] = note;
-            }
-        }
-
-        function stopNote(side) {
-            if (activeNotes[side]) {
-                (side === 'Left' ? synthLeft : synthRight).triggerRelease(activeNotes[side]);
-                activeNotes[side] = null;
-            }
-        }
-
-        function releaseAll() {
-            synthLeft.releaseAll(); 
-            synthRight.releaseAll();
-            activeNotes = { "Left": null, "Right": null };
+            if (textInfo !== "") statusTxt.innerText = textInfo;
+            else statusTxt.innerText = "Manos listas (levanta los dedos)";
         }
 
         const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
