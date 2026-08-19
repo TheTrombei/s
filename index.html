@@ -8,19 +8,19 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <style>
-        body { margin: 0; background-color: #121212; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
-        
+        body { margin: 0; background-color: #000; font-family: sans-serif; overflow: hidden; }
         #startBtn { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             padding: 20px 40px; font-size: 1.2rem; background-color: #00FF88; color: black; 
-            border: none; border-radius: 12px; cursor: pointer; z-index: 10; font-weight: bold;
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+            border: none; border-radius: 12px; cursor: pointer; z-index: 20; font-weight: bold;
         }
-        
-        canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 1; transform: scaleX(-1); }
-        
+        #output_canvas { 
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; 
+            object-fit: cover; z-index: 1; transform: scaleX(-1); 
+        }
         #status { 
-            position: absolute; top: 20px; z-index: 10; color: #00FF88; font-weight: bold; 
-            background: rgba(0,0,0,0.6); padding: 10px 20px; border-radius: 8px; 
+            position: absolute; top: 20px; left: 20px; z-index: 10; color: #00FF88; 
+            background: rgba(0,0,0,0.6); padding: 10px; border-radius: 8px; font-weight: bold;
         }
     </style>
 </head>
@@ -33,30 +33,34 @@
     <script>
         const statusTxt = document.getElementById('status');
         const startBtn = document.getElementById('startBtn');
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
         
-        // --- INICIALIZACIÓN DE AUDIO ---
+        // --- AUDIO ---
         const reverb = new Tone.Reverb(2).toDestination();
         let synthRight = new Tone.FMSynth({oscillator: {type: "sine"}}).connect(reverb);
         let synthLeft = new Tone.AMSynth({oscillator: {type: "triangle"}}).connect(reverb);
-        
         const notes = ["C3", "D3", "E3", "G3", "A3", "C4", "D4", "E4", "G4", "A4", "C5"];
         let isRightPlaying = false, isLeftPlaying = false;
 
         startBtn.addEventListener('click', async () => {
             await Tone.start();
-            startBtn.style.display = 'none'; // El botón se esfuma
+            startBtn.style.display = 'none';
             statusTxt.innerText = "IA Cargada. Mueve las manos.";
             startCamera();
         });
 
-        // --- LÓGICA DE DETECCIÓN ---
+        // --- IA ---
         function onResults(results) {
-            const canvasElement = document.getElementById('output_canvas');
-            const canvasCtx = canvasElement.getContext('2d');
-            canvasElement.width = 1280; canvasElement.height = 720;
+            // Ajuste dinámico para evitar el estiramiento
+            if (canvasElement.width !== videoElement.videoWidth || canvasElement.height !== videoElement.videoHeight) {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+            }
             
-            canvasCtx.clearRect(0, 0, 1280, 720);
-            canvasCtx.drawImage(results.image, 0, 0, 1280, 720);
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
             if (!results.multiHandLandmarks) {
                 if(isRightPlaying) { synthRight.triggerRelease(); isRightPlaying = false; }
@@ -92,9 +96,8 @@
         hands.onResults(onResults);
 
         function startCamera() {
-            new Camera(document.getElementById('input_video'), { 
-                onFrame: async () => await hands.send({image: document.getElementById('input_video')}), 
-                width: 1280, height: 720 
+            new Camera(videoElement, { 
+                onFrame: async () => await hands.send({image: videoElement}),
             }).start();
         }
     </script>
