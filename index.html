@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <title>Espectrógrafo - CulturaCrítica</title>
+    <!-- Agregamos los utils de dibujo de MediaPipe -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
-        #startBtn { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); padding: 20px; font-weight: bold; z-index: 10; cursor: pointer; }
+        body { margin: 0; background: #000; overflow: hidden; }
+        #startBtn { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); padding: 20px; z-index: 10; font-weight: bold; }
         #output_canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); }
-        #status { position: absolute; top: 10px; left: 10px; color: #00FF88; background: rgba(0,0,0,0.5); padding: 5px; z-index: 5; }
     </style>
 </head>
 <body>
-    <div id="status">Cargando...</div>
     <button id="startBtn">INICIAR SINTETIZADOR</button>
     <video id="input_video" style="display:none;"></video>
     <canvas id="output_canvas"></canvas>
@@ -22,8 +22,8 @@
     <script>
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
-        const synthRight = new Tone.PolySynth(Tone.Synth).toDestination();
-        const synthLeft = new Tone.PolySynth(Tone.Synth).toDestination();
+        const synthRight = new Tone.Synth().toDestination();
+        const synthLeft = new Tone.Synth().toDestination();
         
         let activeNotes = { "Left": null, "Right": null };
 
@@ -39,21 +39,24 @@
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-            if (!results.multiHandLandmarks) {
-                releaseAll();
+            // SI NO HAY MANOS, SILENCIO TOTAL
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                if(activeNotes["Left"]) { synthLeft.triggerRelease(); activeNotes["Left"] = null; }
+                if(activeNotes["Right"]) { synthRight.triggerRelease(); activeNotes["Right"] = null; }
                 return;
             }
 
+            // DIBUJO PROFESIONAL CON LA LIBRERÍA DE GOOGLE
+            for (const landmarks of results.multiHandLandmarks) {
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF88', lineWidth: 5});
+                drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 2});
+            }
+
+            // LÓGICA DE SONIDO
             for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                 const landmarks = results.multiHandLandmarks[i];
-                const handedness = results.multiHandedness[i].label; // Left o Right
-                
-                // Dibujar puntos y líneas
-                drawHand(landmarks, handedness);
-
-                // Lógica de dedo estirado
-                const isExtended = Math.hypot(landmarks[8].x - landmarks[0].x, landmarks[8].y - landmarks[0].y) > 
-                                   (Math.hypot(landmarks[5].x - landmarks[0].x, landmarks[5].y - landmarks[0].y) * 1.5);
+                const handedness = results.multiHandedness[i].label;
+                const isExtended = (landmarks[8].y < landmarks[6].y); // Dedo índice estirado
 
                 if (isExtended) {
                     let note = ["C3","D3","E3","G3","A3","C4","D4","E4","G4","A4"][Math.floor((1 - landmarks[8].y) * 10)];
@@ -64,21 +67,9 @@
             }
         }
 
-        function drawHand(landmarks, side) {
-            canvasCtx.strokeStyle = (side === 'Left') ? '#00FF88' : '#FF3366';
-            canvasCtx.lineWidth = 3;
-            // Dibujar líneas básicas entre puntos (índice, medio, anular, meñique)
-            [[8,6], [6,5], [5,0], [12,10], [10,9], [9,0]].forEach(conn => {
-                canvasCtx.beginPath();
-                canvasCtx.moveTo(landmarks[conn[0]].x * canvasElement.width, landmarks[conn[0]].y * canvasElement.height);
-                canvasCtx.lineTo(landmarks[conn[1]].x * canvasElement.width, landmarks[conn[1]].y * canvasElement.height);
-                canvasCtx.stroke();
-            });
-        }
-
         function playNote(side, note) {
             if (activeNotes[side] !== note) {
-                if (activeNotes[side]) (side === 'Left' ? synthLeft : synthRight).triggerRelease(activeNotes[side]);
+                if (activeNotes[side]) (side === 'Left' ? synthLeft : synthRight).triggerRelease();
                 (side === 'Left' ? synthLeft : synthRight).triggerAttack(note);
                 activeNotes[side] = note;
             }
@@ -86,14 +77,9 @@
 
         function stopNote(side) {
             if (activeNotes[side]) {
-                (side === 'Left' ? synthLeft : synthRight).triggerRelease(activeNotes[side]);
+                (side === 'Left' ? synthLeft : synthRight).triggerRelease();
                 activeNotes[side] = null;
             }
-        }
-
-        function releaseAll() {
-            synthLeft.releaseAll(); synthRight.releaseAll();
-            activeNotes = { "Left": null, "Right": null };
         }
 
         const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
