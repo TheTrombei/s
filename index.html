@@ -2,93 +2,98 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Espectrógrafo - CulturaCrítica</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <style>
-        body { margin: 0; background-color: #000; font-family: sans-serif; overflow: hidden; }
-        #startBtn { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            padding: 20px 40px; font-size: 1.2rem; background-color: #00FF88; color: black; 
-            border: none; border-radius: 12px; cursor: pointer; z-index: 20; font-weight: bold;
-        }
-        #output_canvas { 
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; 
-            object-fit: cover; z-index: 1; transform: scaleX(-1); 
-        }
-        #status { 
-            position: absolute; top: 20px; left: 20px; z-index: 10; color: #00FF88; 
-            background: rgba(0,0,0,0.6); padding: 10px; border-radius: 8px; font-weight: bold;
-        }
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
+        #startBtn { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); padding: 20px; font-weight: bold; z-index: 10; cursor: pointer; }
+        #output_canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); }
+        #status { position: absolute; top: 10px; left: 10px; color: #00FF88; background: rgba(0,0,0,0.5); padding: 5px; z-index: 5; }
     </style>
 </head>
 <body>
-    <div id="status">CulturaCrítica Ready</div>
+    <div id="status">Cargando...</div>
     <button id="startBtn">INICIAR SINTETIZADOR</button>
     <video id="input_video" style="display:none;"></video>
     <canvas id="output_canvas"></canvas>
 
     <script>
-        const statusTxt = document.getElementById('status');
-        const startBtn = document.getElementById('startBtn');
-        const videoElement = document.getElementById('input_video');
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
+        const synthRight = new Tone.PolySynth(Tone.Synth).toDestination();
+        const synthLeft = new Tone.PolySynth(Tone.Synth).toDestination();
         
-        // --- AUDIO ---
-        const reverb = new Tone.Reverb(2).toDestination();
-        let synthRight = new Tone.FMSynth({oscillator: {type: "sine"}}).connect(reverb);
-        let synthLeft = new Tone.AMSynth({oscillator: {type: "triangle"}}).connect(reverb);
-        const notes = ["C3", "D3", "E3", "G3", "A3", "C4", "D4", "E4", "G4", "A4", "C5"];
-        let isRightPlaying = false, isLeftPlaying = false;
+        let activeNotes = { "Left": null, "Right": null };
 
-        startBtn.addEventListener('click', async () => {
+        document.getElementById('startBtn').onclick = async () => {
             await Tone.start();
-            startBtn.style.display = 'none';
-            statusTxt.innerText = "IA Cargada. Mueve las manos.";
+            document.getElementById('startBtn').style.display = 'none';
             startCamera();
-        });
+        };
 
-        // --- IA ---
         function onResults(results) {
-            // Ajuste dinámico para evitar el estiramiento
-            if (canvasElement.width !== videoElement.videoWidth || canvasElement.height !== videoElement.videoHeight) {
-                canvasElement.width = videoElement.videoWidth;
-                canvasElement.height = videoElement.videoHeight;
-            }
-            
+            canvasElement.width = results.image.width;
+            canvasElement.height = results.image.height;
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
             if (!results.multiHandLandmarks) {
-                if(isRightPlaying) { synthRight.triggerRelease(); isRightPlaying = false; }
-                if(isLeftPlaying) { synthLeft.triggerRelease(); isLeftPlaying = false; }
+                releaseAll();
                 return;
             }
 
             for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                 const landmarks = results.multiHandLandmarks[i];
-                const handedness = results.multiHandedness[i].label;
+                const handedness = results.multiHandedness[i].label; // Left o Right
                 
-                const isExtended = Math.hypot(landmarks[8].x - landmarks[0].x, landmarks[8].y - landmarks[0].y) > 
-                                   (Math.hypot(landmarks[5].x - landmarks[0].x, landmarks[5].y - landmarks[0].y) * 1.2);
+                // Dibujar puntos y líneas
+                drawHand(landmarks, handedness);
 
-                if (handedness === 'Left') {
-                    if (isExtended) {
-                        let note = notes[Math.floor((1 - landmarks[8].y) * notes.length)];
-                        if (!isLeftPlaying) { synthLeft.triggerAttack(note); isLeftPlaying = true; } 
-                        else { synthLeft.setNote(note); }
-                    } else if (isLeftPlaying) { synthLeft.triggerRelease(); isLeftPlaying = false; }
+                // Lógica de dedo estirado
+                const isExtended = Math.hypot(landmarks[8].x - landmarks[0].x, landmarks[8].y - landmarks[0].y) > 
+                                   (Math.hypot(landmarks[5].x - landmarks[0].x, landmarks[5].y - landmarks[0].y) * 1.5);
+
+                if (isExtended) {
+                    let note = ["C3","D3","E3","G3","A3","C4","D4","E4","G4","A4"][Math.floor((1 - landmarks[8].y) * 10)];
+                    playNote(handedness, note);
                 } else {
-                    if (isExtended) {
-                        let note = notes[Math.floor((1 - landmarks[8].y) * notes.length)];
-                        if (!isRightPlaying) { synthRight.triggerAttack(note); isRightPlaying = true; } 
-                        else { synthRight.setNote(note); }
-                    } else if (isRightPlaying) { synthRight.triggerRelease(); isRightPlaying = false; }
+                    stopNote(handedness);
                 }
             }
+        }
+
+        function drawHand(landmarks, side) {
+            canvasCtx.strokeStyle = (side === 'Left') ? '#00FF88' : '#FF3366';
+            canvasCtx.lineWidth = 3;
+            // Dibujar líneas básicas entre puntos (índice, medio, anular, meñique)
+            [[8,6], [6,5], [5,0], [12,10], [10,9], [9,0]].forEach(conn => {
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(landmarks[conn[0]].x * canvasElement.width, landmarks[conn[0]].y * canvasElement.height);
+                canvasCtx.lineTo(landmarks[conn[1]].x * canvasElement.width, landmarks[conn[1]].y * canvasElement.height);
+                canvasCtx.stroke();
+            });
+        }
+
+        function playNote(side, note) {
+            if (activeNotes[side] !== note) {
+                if (activeNotes[side]) (side === 'Left' ? synthLeft : synthRight).triggerRelease(activeNotes[side]);
+                (side === 'Left' ? synthLeft : synthRight).triggerAttack(note);
+                activeNotes[side] = note;
+            }
+        }
+
+        function stopNote(side) {
+            if (activeNotes[side]) {
+                (side === 'Left' ? synthLeft : synthRight).triggerRelease(activeNotes[side]);
+                activeNotes[side] = null;
+            }
+        }
+
+        function releaseAll() {
+            synthLeft.releaseAll(); synthRight.releaseAll();
+            activeNotes = { "Left": null, "Right": null };
         }
 
         const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
@@ -96,8 +101,8 @@
         hands.onResults(onResults);
 
         function startCamera() {
-            new Camera(videoElement, { 
-                onFrame: async () => await hands.send({image: videoElement}),
+            new Camera(document.getElementById('input_video'), { 
+                onFrame: async () => await hands.send({image: document.getElementById('input_video')}),
             }).start();
         }
     </script>
