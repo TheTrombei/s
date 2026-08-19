@@ -3,73 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <title>Espectrógrafo - CulturaCrítica</title>
-    <!-- Agregamos los utils de dibujo de MediaPipe -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; }
-        #startBtn { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); padding: 20px; z-index: 10; font-weight: bold; }
-        #output_canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); }
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
+        #startBtn { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); 
+            padding: 20px 40px; background: #00FF88; color: black; border: none; 
+            border-radius: 12px; font-size: 1.2rem; font-weight: bold; z-index: 10; cursor: pointer; 
+        }
+        #output_canvas { 
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; 
+            object-fit: cover; transform: scaleX(-1); 
+        }
+        #status { 
+            position: absolute; top: 20px; left: 20px; color: #fff; background: rgba(0,0,0,0.7); 
+            padding: 15px; border-radius: 8px; z-index: 5; font-size: 1.2rem; font-weight: bold; 
+            border: 1px solid #00FF88;
+        }
     </style>
 </head>
 <body>
-    <button id="startBtn">INICIAR SINTETIZADOR</button>
+    <div id="status">Esperando...</div>
+    <button id="startBtn">INICIAR SINTETIZADOR MÁGICO</button>
     <video id="input_video" style="display:none;"></video>
     <canvas id="output_canvas"></canvas>
 
     <script>
+        const statusTxt = document.getElementById('status');
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
-        const synthRight = new Tone.Synth().toDestination();
-        const synthLeft = new Tone.Synth().toDestination();
+        
+        // --- 1. RESTAURAMOS LOS SONIDOS MÁGICOS ---
+        const reverb = new Tone.Reverb(3).toDestination();
+        
+        // Mano Izquierda (Sonido cristalino tipo campana)
+        const synthLeft = new Tone.PolySynth(Tone.AMSynth, {
+            oscillator: { type: "triangle" }
+        }).connect(reverb);
+
+        // Mano Derecha (Sonido profundo tipo Sci-Fi)
+        const synthRight = new Tone.PolySynth(Tone.FMSynth, {
+            oscillator: { type: "sine" }
+        }).connect(reverb);
         
         let activeNotes = { "Left": null, "Right": null };
+        const scale = ["C3","D3","E3","G3","A3","C4","D4","E4","G4","A4"];
 
         document.getElementById('startBtn').onclick = async () => {
             await Tone.start();
             document.getElementById('startBtn').style.display = 'none';
+            statusTxt.innerText = "IA Cargada. Mueve el dedo índice.";
             startCamera();
         };
 
+        // --- 2. LÓGICA DE DIBUJO Y DETECCIÓN ---
         function onResults(results) {
             canvasElement.width = results.image.width;
             canvasElement.height = results.image.height;
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-            // SI NO HAY MANOS, SILENCIO TOTAL
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                if(activeNotes["Left"]) { synthLeft.triggerRelease(); activeNotes["Left"] = null; }
-                if(activeNotes["Right"]) { synthRight.triggerRelease(); activeNotes["Right"] = null; }
+                releaseAll();
+                statusTxt.innerText = "Buscando manos...";
                 return;
             }
 
-            // DIBUJO PROFESIONAL CON LA LIBRERÍA DE GOOGLE
-            for (const landmarks of results.multiHandLandmarks) {
-                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF88', lineWidth: 5});
-                drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 2});
-            }
+            let textInfo = "";
 
-            // LÓGICA DE SONIDO
             for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                 const landmarks = results.multiHandLandmarks[i];
-                const handedness = results.multiHandedness[i].label;
-                const isExtended = (landmarks[8].y < landmarks[6].y); // Dedo índice estirado
+                const handedness = results.multiHandedness[i].label; // "Left" o "Right"
+                
+                // RESTAURAMOS LOS COLORES DE TU APP (Verde para una mano, Rosa para la otra)
+                const handColor = (handedness === 'Left') ? '#00FF88' : '#FF3366';
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: handColor, lineWidth: 4});
+                drawLandmarks(canvasCtx, landmarks, {color: '#FFFFFF', lineWidth: 1, radius: 4});
+
+                // Detectamos si el dedo índice está estirado (usando la matemática infalible)
+                const isExtended = (landmarks[8].y < landmarks[6].y); 
 
                 if (isExtended) {
-                    let note = ["C3","D3","E3","G3","A3","C4","D4","E4","G4","A4"][Math.floor((1 - landmarks[8].y) * 10)];
+                    // Calculamos qué nota debe tocar según la altura del dedo
+                    let noteIndex = Math.floor((1 - landmarks[8].y) * 10);
+                    noteIndex = Math.max(0, Math.min(9, noteIndex)); // Evita que se salga del rango
+                    let note = scale[noteIndex];
+                    
                     playNote(handedness, note);
+                    
+                    // Preparamos el texto para mostrar en pantalla
+                    let nombreMano = (handedness === 'Left') ? "🟢 Izq" : "🔴 Der";
+                    textInfo += `${nombreMano}: ${note}   `;
                 } else {
                     stopNote(handedness);
                 }
             }
+
+            // ACTUALIZAMOS EL TEXTO EN PANTALLA
+            if (textInfo !== "") {
+                statusTxt.innerText = `Tocando -> ${textInfo}`;
+            } else {
+                statusTxt.innerText = "Puños cerrados (Silencio)";
+            }
         }
 
+        // --- 3. GESTIÓN DE NOTAS (Evita que se traben) ---
         function playNote(side, note) {
             if (activeNotes[side] !== note) {
-                if (activeNotes[side]) (side === 'Left' ? synthLeft : synthRight).triggerRelease();
+                if (activeNotes[side]) {
+                    (side === 'Left' ? synthLeft : synthRight).triggerRelease(activeNotes[side]);
+                }
                 (side === 'Left' ? synthLeft : synthRight).triggerAttack(note);
                 activeNotes[side] = note;
             }
@@ -77,9 +123,15 @@
 
         function stopNote(side) {
             if (activeNotes[side]) {
-                (side === 'Left' ? synthLeft : synthRight).triggerRelease();
+                (side === 'Left' ? synthLeft : synthRight).triggerRelease(activeNotes[side]);
                 activeNotes[side] = null;
             }
+        }
+
+        function releaseAll() {
+            synthLeft.releaseAll(); 
+            synthRight.releaseAll();
+            activeNotes = { "Left": null, "Right": null };
         }
 
         const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
